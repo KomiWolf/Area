@@ -1,0 +1,80 @@
+FROM node:20.17.0
+
+ARG EMAIL
+ARG USERNAME
+ARG EXPO_PASSWORD
+ARG EXPO_TOKEN
+
+# Set the default environment variables
+ENV DEBIAN_FRONTEND=noninteractive
+ENV HOME=/mobile
+ENV JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+ENV CI=1
+ENV EMAIL=$EMAIL
+ENV USERNAME=$USERNAME
+ENV EXPO_PASSWORD=$EXPO_PASSWORD
+ENV EXPO_TOKEN=$EXPO_TOKEN
+
+# Set main working directory
+WORKDIR ${HOME}
+
+# Update the system and Install required packages
+RUN apt update && apt upgrade -y && \
+    apt install -y openjdk-17-jdk wget unzip zip xsel && \
+    npm install -g npm@latest && \
+    npm cache clean --force
+
+# Copy package files and Install dependencies
+COPY package.json package-lock.json ./
+
+# Downloading EAS and dependencies
+RUN npm install -g expo-cli eas-cli \
+    npm install @react-native-masked-view/masked-view@0.3.2 \
+    npx expo install expo-status-bar@~2.0.1 \
+    react-native@0.76.6 \
+    react-native-gesture-handler@~2.20.2 \
+    react-native-safe-area-context@4.12.0 \
+    react-native-screens@~4.4.0 \
+    typescript@^5.3.3
+
+# Copy remaining project files
+COPY . .
+
+# Initialize a Git repository, config EXPO login for EAS build
+RUN mkdir -p ${HOME}/scripts && \
+    echo '#!/bin/bash\n\
+    set -e\n\
+    \n\
+    if [ -z "$EMAIL" ] || [ -z "$USERNAME" ]; then\n\
+        echo "ERROR: EMAIL and USERNAME environment variables must be set"\n\
+        exit 1\n\
+    fi\n\
+    \n\
+    # Ensure we are in the correct directory\n\
+    cd ${HOME}\n\
+    \n\
+    # Clean up any existing git repository\n\
+    rm -rf .git\n\
+    \n\
+    # Initialize new git repository\n\
+    git init\n\
+    git config --global user.email "${EMAIL}"\n\
+    git config --global user.name "${USERNAME}"\n\
+    git config --global init.defaultBranch main\n\
+    \n\
+    # Configure git to handle line endings correctly\n\
+    git config --global core.autocrlf input\n\
+    \n\
+    # Add and commit files\n\
+    git add .\n\
+    git commit -m "feat: initial commit"\n\
+    \n\
+    # Run EAS build with error handling\n\
+    if ! eas build -p android --profile preview --clear-cache --non-interactive; then\n\
+        echo "EAS build failed. Check the error messages above."\n\
+        exit 1\n\
+    fi\n\
+    ' > ${HOME}/scripts/build.sh && \
+        chmod +x ${HOME}/scripts/build.sh
+
+    ENTRYPOINT ["/mobile/scripts/build.sh"]
